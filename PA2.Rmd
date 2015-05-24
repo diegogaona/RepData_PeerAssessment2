@@ -1,0 +1,202 @@
+---
+title: "Weather impact on the population health and economic consequences between 1950 and 2011 in the United States."
+author: "Diego Gaona"
+date: "Friday, May 22, 2015"
+output: html_document
+---
+
+## Synopsis
+The objective of this report is to answer two questions about the weather events across the United States over the population health, and determine which of those have also the greatest economic consequences, we perform the analysis using the Storm Data, which is an official publication of the National Oceanic and Atmospheric Administration (NOAA) which documents the occurrence of storms and other significant weather phenomena.
+
+In summary our hypothesis is that the  weather event types that cause most impact on public health are TORNADOS and the event type that causes most impact on an economic basis is a FLOOD.
+
+##Data Processing
+
+###Getting and preparing data:
+
+- The following code will create the data directory within the working directory.
+
+```{r Preparing_directory}
+if(!file.exists("data"))
+{
+    dir.create("data")    
+}
+```
+
+- From Downloading, uncompressing/loading the data. The data-set comes in the a compressed format "bz2", however the read.csv() function can handle compressed files automatically.
+
+
+```{r Get_Load_Data, cache = TRUE}
+#Please make sure to use the setInternet2 function to enable the use of Internet Explorer for Internet access, notice that this issue happens with 'knitr' and download.file() in Windows systems.
+
+setInternet2(use = TRUE)
+
+if(!file.exists("data/StormData.csv.bz2"))
+{
+    fileUrl <- "https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2"   
+    download.file(fileUrl, destfile = "data/StormData.csv.bz2")
+}
+
+#By default read.csv will treat strings as factors, causing some issues later, it was used the option stringAsFactor set by FALSE to prevent that.
+options(stringsAsFactors = FALSE)
+
+stormData <- read.csv("./data/StormData.csv.bz2")
+
+str(stormData)
+```
+
+###Pre-processing the data
+
+After review the dataset carefully, only a few columns will be needed to address the questions:  
+1. EVTYPE: Type of event, as dimension.  
+2. FATALITIES: Occurrence of death, as measure. (Health-related)  
+3. INJURIES: Damage to a person, as measure. (Health-related)  
+4. PROPDMG: Property damage, as measure. (Economic-related)  
+5. PROPDMGEXP: Magnitude of property damage, as dimension. (Economic-related)  
+6. CROPDMG: Crop damage, as measure. (Economic-related)  
+7. CROPDMGEXP: Magnitude of crop damage, as dimension. (Economic-related)  
+
+Now it's suggested to subset the columns mentioned and remove the others that we will not be needed,
+
+```{r SubSet_Data}
+
+#subsetting the columns
+stormData <- stormData[,c("EVTYPE", "FATALITIES", "INJURIES", "PROPDMG", "PROPDMGEXP", "CROPDMG", "CROPDMGEXP")]
+
+```
+
+Due to the similarity of the variables 'FATALITIES' and 'INJURIES', we are going to summarize in a single column called 'HEALTDMG'.
+Also the manitudes of damages ('PROPDMGEXP' and 'CROPDMGEXP') needs to be processed from strings and assign a numeric value to calculate and generate a new variable called 'ECONOMICDMG'.
+
+```{r PreProcess_Data1}
+
+#creating a new summarized column
+stormData$HEALTHDMG <- stormData$FATALITIES + stormData$INJURIES
+
+#Assess the magnitudes of property and crop damages
+unique(stormData$PROPDMGEXP)
+unique(stormData$CROPDMGEXP)
+```
+
+Now it is time to calculate the new 'ECONOMICDMG' variable, please check the [Metric prefixes table for multiples and submultiples](http://www.traditionaloven.com/conversions_of_measures/metric_units_conversion.html).
+
+```{r PreProcess_Data2}
+
+##changing the character values to numbers to make the math
+
+stormData$PROPDMGEXP[stormData$PROPDMGEXP=="K"] <- 3
+stormData$PROPDMGEXP[stormData$PROPDMGEXP=="M"] <- 6
+stormData$PROPDMGEXP[stormData$PROPDMGEXP==""] <- 0
+stormData$PROPDMGEXP[stormData$PROPDMGEXP=="B"] <- 9
+stormData$PROPDMGEXP[stormData$PROPDMGEXP=="m"] <- 6
+stormData$PROPDMGEXP[stormData$PROPDMGEXP=="+"] <- 0
+stormData$PROPDMGEXP[stormData$PROPDMGEXP=="?"] <- 0
+stormData$PROPDMGEXP[stormData$PROPDMGEXP=="h"] <- 2
+stormData$PROPDMGEXP[stormData$PROPDMGEXP=="H"] <- 2
+stormData$PROPDMGEXP[stormData$PROPDMGEXP=="-"] <- 0
+
+##also taking into account the NAs values.
+stormData$PROPDMGEXP[is.na(stormData$PROPDMGEXP)] <- 0
+
+#transforming in a numeric column.
+stormData$PROPDMGEXP <- as.numeric(stormData$PROPDMGEXP)
+
+stormData$CROPDMGEXP[stormData$CROPDMGEXP==""] <- 0
+stormData$CROPDMGEXP[stormData$CROPDMGEXP=="M"] <- 6
+stormData$CROPDMGEXP[stormData$CROPDMGEXP=="K"] <- 3
+stormData$CROPDMGEXP[stormData$CROPDMGEXP=="m"] <- 6
+stormData$CROPDMGEXP[stormData$CROPDMGEXP=="B"] <- 9
+stormData$CROPDMGEXP[stormData$CROPDMGEXP=="?"] <- 0
+stormData$CROPDMGEXP[stormData$CROPDMGEXP=="k"] <- 3
+
+##taking care of the NAs values.
+stormData$CROPDMGEXP[is.na(stormData$CROPDMGEXP)] <- 0
+
+#transforming in a numeric column.
+stormData$CROPDMGEXP <- as.numeric(stormData$CROPDMGEXP)
+
+```
+
+Having the tidy dataset with the proper magnitude exponents, we will calculate the 'ECONOMICDMG'.
+
+```{r PreProcess_Data3}
+stormData$ECONOMICDMG <- (stormData$PROPDMG * 10^(stormData$PROPDMGEXP)) + (stormData$CROPDMG * 10^(stormData$CROPDMGEXP)) 
+```
+
+This is just to validate the processed columns and data consistency  
+
+```{r Validating_PreProcess}
+str(stormData)
+unique(stormData$PROPDMGEXP)
+unique(stormData$CROPDMGEXP)
+```
+
+###Process the data
+
+We are going to create two new subsets of data to answer our questions.
+
+```{r Process_Data1, message=FALSE}
+#Loading the 'dplyr' library
+library(dplyr)
+
+healthDamage <- summarize(group_by(stormData, EVTYPE), TOTAL=sum(HEALTHDMG))
+economicDamage <- summarize(group_by(stormData, EVTYPE), TOTAL=sum(ECONOMICDMG))
+```
+
+##Results 
+
+Now we can get the top ten event types by health threat and economic amount.
+
+```{r Results_Data}
+
+healthDamage <- healthDamage[order(healthDamage$TOTAL, decreasing = TRUE), ]
+healthDamage <- healthDamage[1:10, ]
+
+economicDamage <- economicDamage[order(economicDamage$TOTAL, decreasing = TRUE), ]
+economicDamage <- economicDamage[1:10, ]
+
+#preview the results (the total measure of healthDamage counts people and economic is in dollars).
+head(healthDamage)
+head(economicDamage)
+
+```
+
+Now we can summarize the information in a two plots, the 'ggplot2' library is going to be used, if you do not have installed remember to execute 'install.packages("ggplot2")' in order to install it.
+
+
+```{r Results_Plot}
+library(ggplot2)
+
+healthPlot <- ggplot(healthDamage[1:5, ], aes(x=EVTYPE, y=TOTAL, fill=EVTYPE)) +
+              geom_bar(stat="identity") + xlab("Event Type") + ylab("People Harmed") +
+              theme(legend.position="none") + ggtitle ("People harmed by weather event type")
+
+healthPlot
+
+economicPlot <- ggplot(economicDamage[1:5, ], aes(x=EVTYPE, y=TOTAL, fill=EVTYPE)) +
+    geom_bar(stat="identity") + xlab("Event Type") + ylab("Economic damage in USD") +
+    theme(legend.position="none") + ggtitle ("Economic damage by weather event type")
+
+economicPlot
+
+```
+
+### Answered Questions
+
+**Q: Across the United States, which types of events (as indicated in the EVTYPE variable) are most harmful with respect to population health?**  
+A: In order to importance are:  
+1. **TORNADOS**  
+2. EXCESSIVE HEAT  
+3. TSTM WIND  
+4. FLOOD  
+5. LIGHTNING  
+
+**Q. Across the United States, which types of events have the greatest economic consequences?**  
+A: In order to importance are:  
+1. **FLOOD**  
+2. HURRICANE/TYPHOON  
+3. TORNADO  
+4. STORM SURGE  
+5. HAIL  
+
+
